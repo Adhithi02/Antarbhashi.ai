@@ -108,7 +108,38 @@ class SpeechTranslatorApp:
             self.tts_tokenizer = AutoTokenizer.from_pretrained("ai4bharat/indic-parler-tts")
             self.description_tokenizer = AutoTokenizer.from_pretrained(self.tts_model.config.text_encoder._name_or_path)
             
+            # Optimize TTS model for inference
             self.tts_model.eval()
+            
+            # Enable model optimizations for faster inference
+            if hasattr(torch, 'compile') and torch.cuda.is_available():
+                try:
+                    self.tts_model = torch.compile(self.tts_model, mode="reduce-overhead")
+                    print("TTS model compiled with torch.compile for faster inference")
+                except Exception as e:
+                    print(f"torch.compile failed, using standard model: {e}")
+            
+            # Enable half precision for faster inference if using CUDA
+            if self.DEVICE == "cuda" and hasattr(self.tts_model, 'half'):
+                try:
+                    self.tts_model = self.tts_model.half()
+                    print("TTS model converted to half precision for faster inference")
+                except Exception as e:
+                    print(f"Half precision conversion failed: {e}")
+            
+            # Enable memory efficient attention if available
+            if hasattr(self.tts_model.config, 'use_memory_efficient_attention'):
+                self.tts_model.config.use_memory_efficient_attention = True
+            
+            # Pre-allocate tensors for faster inference
+            self.tts_model.config.pre_allocate_tensors = True
+            
+            # Enable gradient checkpointing for memory efficiency
+            if hasattr(self.tts_model, 'gradient_checkpointing_enable'):
+                self.tts_model.gradient_checkpointing_enable()
+            
+            # Cache tokenizer outputs for common descriptions
+            self.speaker_descriptions = {}
             
             self.update_status("All models loaded! Ready to record.")
             self.record_button.config(state=tk.NORMAL)
@@ -162,6 +193,16 @@ class SpeechTranslatorApp:
         self.speaker_combo = ttk.Combobox(speaker_frame, textvariable=self.speaker_var, 
                                      values=self.language_mapping["Kannada"]["speakers"], width=15)
         self.speaker_combo.pack(side=tk.LEFT, padx=5)
+        
+        # Add speed/quality toggle
+        speed_frame = ttk.Frame(main_frame)
+        speed_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(speed_frame, text="Generation Speed:").pack(side=tk.LEFT, padx=5)
+        self.speed_var = tk.StringVar(value="Balanced")
+        speed_combo = ttk.Combobox(speed_frame, textvariable=self.speed_var, 
+                                  values=["Fast", "Balanced", "High Quality"], width=15)
+        speed_combo.pack(side=tk.LEFT, padx=5)
         
         self.play_button = ttk.Button(main_frame, text="Play Translation", command=self.play_audio, state=tk.DISABLED)
         self.play_button.pack(pady=10)
@@ -366,11 +407,58 @@ class SpeechTranslatorApp:
             prompt_attention_mask = prompt_inputs.attention_mask.to(self.DEVICE)
             
             with torch.no_grad():
+                # Get speed setting and configure generation parameters
+                speed_setting = self.speed_var.get()
+                
+                if speed_setting == "Fast":
+                    # Fastest generation with minimal quality trade-offs
+                    generation_params = {
+                        "max_length": 256,  # Shorter max length
+                        "do_sample": True,
+                        "temperature": 0.5,  # Lower temperature for faster convergence
+                        "top_p": 0.8,
+                        "top_k": 20,
+                        "num_beams": 1,
+                        "early_stopping": True,
+                        "pad_token_id": self.tts_tokenizer.eos_token_id,
+                        "eos_token_id": self.tts_tokenizer.eos_token_id,
+                        "use_cache": True,
+                    }
+                elif speed_setting == "High Quality":
+                    # Highest quality with slower generation
+                    generation_params = {
+                        "max_length": 1024,  # Longer max length for better quality
+                        "do_sample": True,
+                        "temperature": 0.8,  # Higher temperature for more natural speech
+                        "top_p": 0.95,
+                        "top_k": 100,
+                        "num_beams": 3,  # Beam search for better quality
+                        "early_stopping": True,
+                        "pad_token_id": self.tts_tokenizer.eos_token_id,
+                        "eos_token_id": self.tts_tokenizer.eos_token_id,
+                        "use_cache": True,
+                    }
+                else:  # Balanced
+                    # Balanced speed and quality
+                    generation_params = {
+                        "max_length": 512,
+                        "do_sample": True,
+                        "temperature": 0.7,
+                        "top_p": 0.9,
+                        "top_k": 50,
+                        "num_beams": 1,
+                        "early_stopping": True,
+                        "pad_token_id": self.tts_tokenizer.eos_token_id,
+                        "eos_token_id": self.tts_tokenizer.eos_token_id,
+                        "use_cache": True,
+                    }
+                
                 generation = self.tts_model.generate(
                     input_ids=description_input_ids,
                     attention_mask=description_attention_mask,
                     prompt_input_ids=prompt_input_ids,
-                    prompt_attention_mask=prompt_attention_mask
+                    prompt_attention_mask=prompt_attention_mask,
+                    **generation_params
                 )
             
             audio_arr = generation.cpu().numpy().squeeze()

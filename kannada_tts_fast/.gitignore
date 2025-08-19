@@ -1,0 +1,311 @@
+# =============================================================================
+# .gitignore for Distilled Kannada TTS Model Project
+# =============================================================================
+
+# ==========================================
+# Model Files (Large binaries - exclude from git)
+# ==========================================
+
+# Original model files
+kn/
+kn/**/*.pth
+kn/**/*.pt
+kn/**/*.ckpt
+kn/**/*.safetensors
+
+# Optimized/converted model files
+kn_cpu_patched/
+kannada_mac_optimized/
+*_optimized/
+*_converted/
+*_quantized/
+
+# Any model checkpoints
+*.pth
+*.pt
+*.ckpt
+*.bin
+*.safetensors
+best_model.*
+checkpoint_*.pth
+
+# Model config files that might contain sensitive paths
+# (Remove these lines if you want to include configs)
+# config.json
+# speakers.pth
+
+# ==========================================
+# Generated Audio Files
+# ==========================================
+
+# Output audio files
+*.wav
+*.mp3
+*.flac
+*.ogg
+output*
+*_output.*
+surgical_output.*
+mac_kannada_output.*
+simple_output.*
+bengaluru.*
+city.*
+weather.*
+bangalore.*
+
+# ==========================================
+# Python Environment & Dependencies
+# ==========================================
+
+# Virtual environments
+venv/
+env/
+.env
+.venv
+ENV/
+env.bak/
+venv.bak/
+
+# Conda environments
+.conda/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyTorch specific
+.torch/
+torch_extensions/
+
+# ==========================================
+# IDE & Editor Files
+# ==========================================
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# ==========================================
+# System Files
+# ==========================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ==========================================
+# Logs & Temporary Files
+# ==========================================
+
+# Log files
+*.log
+logs/
+*.out
+*.err
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+*.tmp
+*.temp
+
+# Cache directories
+.cache/
+cache/
+
+# ==========================================
+# Data & Training Files
+# ==========================================
+
+# Large datasets
+data/
+dataset/
+datasets/
+*.csv
+*.tsv
+*.json.gz
+*.pickle
+*.pkl
+
+# Training outputs
+runs/
+wandb/
+tensorboard_logs/
+tb_logs/
+mlruns/
+
+# Checkpoints during training
+checkpoints/
+saved_models/
+experiments/
+
+# ==========================================
+# Configuration & Secrets
+# ==========================================
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# API keys and secrets
+secrets.json
+credentials.json
+*.key
+*.pem
+
+# Local configuration
+local_config.json
+config_local.py
+
+# ==========================================
+# Documentation Build Files
+# ==========================================
+
+# Sphinx documentation
+docs/_build/
+.sphinx/
+
+# ==========================================
+# Testing & Coverage
+# ==========================================
+
+# Coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# ==========================================
+# Jupyter Notebooks
+# ==========================================
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# IPython history
+profile_default/
+ipython_config.py
+
+# ==========================================
+# Package Management
+# ==========================================
+
+# pip
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Poetry
+poetry.lock
+
+# Pipenv
+Pipfile.lock
+
+# ==========================================
+# Optional: Include Sample Files
+# ==========================================
+
+# If you want to include small sample audio files for testing:
+# !samples/*.wav
+# !test_audio/*.wav
+
+# If you want to include config templates:
+# !config_template.json
+# !example_config.json
+
+# ==========================================
+# Project-Specific Additions
+# ==========================================
+
+# Add any project-specific files to ignore here
+# optimization_info.json  # Uncomment if you don't want to track optimization metadata
+# speakers_backup.pth     # Uncomment if you create backup files

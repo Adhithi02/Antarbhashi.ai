@@ -20,7 +20,7 @@ import queue
 
 
 class AudioEnhancer:
-    """Real-time audio enhancement for noise reduction"""
+    """Real-time audio enhancement for noise reduction - using spectral3.py approach"""
     def __init__(self, samplerate=16000, frame_length=2048, hop_length=512, 
                  alpha=0.98, noise_threshold=1.2, vad_aggressiveness=2):
         self.samplerate = samplerate
@@ -29,108 +29,93 @@ class AudioEnhancer:
         self.alpha = alpha
         self.noise_threshold = noise_threshold
         
-        # Initialize VAD
+        # Initialize VAD - exactly as in spectral3.py
         self.vad = webrtcvad.Vad(vad_aggressiveness)
-        self.vad_frame_size = int(0.02 * samplerate)  # 20ms for VAD
+        self.blocksize = 320  # 20 ms frames for VAD at 16kHz (same as spectral3.py)
         
-        # Noise profile for enhancement
+        # Noise profile for enhancement - exactly as in spectral3.py
         self.noise_profile = np.zeros((frame_length // 2 + 1, 1))
         self.noise_frames_count = 0
         self.speech_frames_count = 0
         
-    def spectral_subtraction(self, magnitude, noise_profile):
-        """Apply spectral subtraction for noise reduction"""
-        if np.any(noise_profile > 0):
-            # Compute spectral subtraction mask
-            mask = 1 - (self.noise_threshold * noise_profile) / (magnitude + 1e-8)
-            mask = np.maximum(mask, 0.1)  # Minimum mask to prevent artifacts
-            return mask
-        return np.ones_like(magnitude)
-    
     def enhance_audio_chunk(self, audio_chunk):
-        """Enhance a chunk of audio using spectral subtraction"""
+        """Enhance a chunk of audio using the exact method from spectral3.py"""
         if len(audio_chunk) < self.frame_length:
             return audio_chunk
             
-        # STFT analysis
+        # changing from time domain to frq domain (same comment as spectral3.py)
         stft = librosa.stft(audio_chunk, n_fft=self.frame_length, hop_length=self.hop_length)
-        magnitude, phase = np.abs(stft), np.angle(stft)
-        avg_magnitude = np.mean(magnitude, axis=1, keepdims=True)
+        mag, phase = np.abs(stft), np.angle(stft)
+        avg_mag = np.mean(mag, axis=1, keepdims=True)
+
+        # (must be 20ms for webrtcvad) idk why but it works better with 20ms (same comment as spectral3.py)
+        vad_frame = audio_chunk[:self.blocksize]  # first 20ms frame exactly
+        vad_frame_bytes = (vad_frame * 32768).astype(np.int16).tobytes()
         
-        # VAD on first 20ms if available
-        if len(audio_chunk) >= self.vad_frame_size:
-            vad_frame = audio_chunk[:self.vad_frame_size]
-            vad_frame_bytes = (vad_frame * 32767).astype(np.int16).tobytes()
-            
-            try:
-                is_speech = self.vad.is_speech(vad_frame_bytes, self.samplerate)
-            except:
-                is_speech = True  # Default to speech if VAD fails
-        else:
-            is_speech = True
-        
-        # Update noise profile during non-speech segments
+        try:
+            is_speech = self.vad.is_speech(vad_frame_bytes, self.samplerate)
+        except:
+            is_speech = True  # Default to speech if VAD fails
+
         if not is_speech:
-            self.noise_profile = (self.alpha * self.noise_profile + 
-                                (1 - self.alpha) * avg_magnitude)
+            self.noise_profile = self.alpha * self.noise_profile + (1 - self.alpha) * avg_mag
             self.noise_frames_count += 1
         else:
             self.speech_frames_count += 1
-        
-        # Apply spectral subtraction
-        mask = self.spectral_subtraction(magnitude, self.noise_profile)
-        enhanced_magnitude = magnitude * mask
-        
-        # Smooth to reduce artifacts
-        enhanced_magnitude = uniform_filter1d(enhanced_magnitude, size=3, axis=1)
-        
-        # ISTFT synthesis
-        enhanced_stft = enhanced_magnitude * np.exp(1j * phase)
-        enhanced_audio = librosa.istft(enhanced_stft, hop_length=self.hop_length)
-        
-        return enhanced_audio
+
+        # (changed mask for smooth audio) remove this if its still same ***** (same comment as spectral3.py)
+        mask = mag / (mag + self.noise_threshold * self.noise_profile + 1e-8) #**tune**
+        mag_enh = mag * mask
+        mag_enh = uniform_filter1d(mag_enh, size=3, axis=1)
+
+        # changing it back to time domain (same comment as spectral3.py)
+        stft_enh = mag_enh * np.exp(1j * phase)
+        enhanced = librosa.istft(stft_enh, hop_length=self.hop_length)
+
+        return enhanced
     
     def enhance_full_audio(self, audio_data):
-        """Enhance complete audio file"""
+        """Enhance complete audio file using spectral3.py approach"""
         if len(audio_data) == 0:
             return audio_data
-            
-        # Process in overlapping chunks for better quality
-        chunk_size = self.frame_length * 4  # Larger chunks for file processing
-        overlap = self.frame_length // 2
-        enhanced_chunks = []
         
-        for start in range(0, len(audio_data) - overlap, chunk_size - overlap):
-            end = min(start + chunk_size, len(audio_data))
-            chunk = audio_data[start:end]
+        # Reset noise profile for new audio
+        self.noise_profile = np.zeros((self.frame_length // 2 + 1, 1))
+        self.noise_frames_count = 0
+        self.speech_frames_count = 0
+        
+        # Process the entire audio similar to spectral3.py real-time approach
+        # but in larger chunks for file processing
+        buffer = np.array(audio_data)
+        all_enhanced_audio = []
+        
+        # Process in frame_length chunks (similar to spectral3.py buffer processing)
+        start = 0
+        while start < len(buffer):
+            end = min(start + self.frame_length, len(buffer))
+            chunk = buffer[start:end]
             
-            if len(chunk) > self.frame_length // 2:  # Only process meaningful chunks
+            if len(chunk) >= self.frame_length:
                 enhanced_chunk = self.enhance_audio_chunk(chunk)
-                enhanced_chunks.append(enhanced_chunk)
-        
-        if enhanced_chunks:
-            # Overlap-add reconstruction
-            enhanced_audio = enhanced_chunks[0]
-            for i, chunk in enumerate(enhanced_chunks[1:], 1):
-                # Simple overlap-add (can be improved with proper windowing)
-                start_pos = (chunk_size - overlap) * i
-                if start_pos < len(enhanced_audio):
-                    # Overlap region
-                    overlap_len = min(overlap, len(enhanced_audio) - start_pos, len(chunk))
-                    if overlap_len > 0:
-                        enhanced_audio[start_pos:start_pos + overlap_len] *= 0.5
-                        enhanced_audio[start_pos:start_pos + overlap_len] += chunk[:overlap_len] * 0.5
-                    
-                    # Non-overlap region
-                    if len(chunk) > overlap_len:
-                        enhanced_audio = np.concatenate([
-                            enhanced_audio,
-                            chunk[overlap_len:]
-                        ])
-                else:
-                    enhanced_audio = np.concatenate([enhanced_audio, chunk])
+                all_enhanced_audio.append(enhanced_chunk)
+            elif len(chunk) > 0:
+                # Handle remaining short chunk
+                # Pad to minimum length for processing
+                padded_chunk = np.pad(chunk, (0, self.frame_length - len(chunk)), mode='constant')
+                enhanced_chunk = self.enhance_audio_chunk(padded_chunk)
+                # Take only the original length
+                enhanced_chunk = enhanced_chunk[:len(chunk)]
+                all_enhanced_audio.append(enhanced_chunk)
             
-            return enhanced_audio
+            start += self.frame_length
+        
+        if all_enhanced_audio:
+            # Concatenate all enhanced chunks (same as spectral3.py final_audio)
+            final_audio = np.concatenate(all_enhanced_audio)
+            # Normalize (same as spectral3.py)
+            if np.max(np.abs(final_audio)) > 0:
+                final_audio = final_audio / np.max(np.abs(final_audio))
+            return final_audio
         
         return audio_data
 
@@ -194,20 +179,19 @@ class SpeechTranslatorApp:
         self.enhanced_wav_file = os.path.join(self.audio_dir, "enhanced_recording.wav")
         self.output_file = os.path.join(self.audio_dir, "output.mp3")
         
-        # Initialize audio enhancer
+        # Initialize audio enhancer with spectral3.py parameters
         self.audio_enhancer = AudioEnhancer(
             samplerate=16000,
-            noise_threshold=1.5,  # Adjustable based on environment
+            frame_length=2048,
+            hop_length=512,
+            alpha=0.98,
+            noise_threshold=1.2,  # Default from spectral3.py
             vad_aggressiveness=2
         )
         
         # Audio enhancement settings
         self.enhancement_enabled = tk.BooleanVar(value=True)
-        self.noise_threshold_var = tk.DoubleVar(value=1.5)
-        # Audio enhancement settings
-        self.enhancement_enabled = tk.BooleanVar(value=True)
-        self.noise_threshold_var = tk.DoubleVar(value=1.5)
-        # ADD THIS LINE:
+        self.noise_threshold_var = tk.DoubleVar(value=1.2)  # Default from spectral3.py
         self.auto_play_enabled = tk.BooleanVar(value=True)
         
         # Initialize models
@@ -276,11 +260,12 @@ class SpeechTranslatorApp:
         threshold_frame.pack(fill=tk.X, pady=5)
         
         ttk.Label(threshold_frame, text="Noise Reduction Level:").pack(side=tk.LEFT)
+        # Changed range to match spectral3.py default (1.2) with reasonable range
         threshold_scale = ttk.Scale(threshold_frame, from_=0.5, to=3.0, 
                                   variable=self.noise_threshold_var, orient=tk.HORIZONTAL)
         threshold_scale.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         
-        self.threshold_label = ttk.Label(threshold_frame, text="1.5")
+        self.threshold_label = ttk.Label(threshold_frame, text="1.2")
         self.threshold_label.pack(side=tk.LEFT, padx=5)
         
         threshold_scale.bind("<Motion>", self.update_threshold_label)
@@ -392,7 +377,7 @@ class SpeechTranslatorApp:
         self.update_status("Recording... Speak now")
         self.update_quality_info("")
         
-        # Reset audio enhancer state
+        # Reset audio enhancer state (same as spectral3.py initialization)
         self.audio_enhancer.noise_profile = np.zeros((self.audio_enhancer.frame_length // 2 + 1, 1))
         self.audio_enhancer.noise_frames_count = 0
         self.audio_enhancer.speech_frames_count = 0
@@ -484,7 +469,7 @@ class SpeechTranslatorApp:
             self.update_status(f"Recording error: {str(e)}")
     
     def enhance_recorded_audio(self):
-        """Apply audio enhancement to the recorded file"""
+        """Apply audio enhancement to the recorded file using spectral3.py method"""
         try:
             if not os.path.exists(self.temp_wav_file):
                 return False
@@ -500,11 +485,7 @@ class SpeechTranslatorApp:
                 self.update_status("Enhancing audio quality...")
                 enhanced_audio = self.audio_enhancer.enhance_full_audio(audio_data)
                 
-                # Normalize enhanced audio
-                if np.max(np.abs(enhanced_audio)) > 0:
-                    enhanced_audio = enhanced_audio / np.max(np.abs(enhanced_audio)) * 0.95
-                
-                # Save enhanced audio
+                # Save enhanced audio (same normalization as spectral3.py)
                 sf.write(self.enhanced_wav_file, enhanced_audio, sr)
                 
                 # Update quality info
